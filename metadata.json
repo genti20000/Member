@@ -1,0 +1,6 @@
+{
+  "name": "JONNY’S MEMBERS",
+  "description": "Private members’ club door, admissions, and compliance management system for Jonny's Soho at 23 Frith Street.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
