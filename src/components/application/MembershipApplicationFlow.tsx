@@ -15,6 +15,8 @@ import { clubStore } from '../../services/storage';
 
 export const MembershipApplicationFlow: React.FC = () => {
   const currentRules = clubStore.getCurrentRuleVersion();
+  const currentStaff = clubStore.getCurrentStaff();
+  const isAdmin = currentStaff.role === 'admin' || currentStaff.role === 'manager';
 
   // Form State
   const [fullName, setFullName] = useState('');
@@ -28,6 +30,10 @@ export const MembershipApplicationFlow: React.FC = () => {
   const [photoUrl, setPhotoUrl] = useState('');
   const [agreeToRules, setAgreeToRules] = useState(false);
   const [privacyConsent, setPrivacyConsent] = useState(false);
+
+  // Admin 48-Hour Backdate Option
+  const [adminBackdate48Hours, setAdminBackdate48Hours] = useState(false);
+  const [adminJustification, setAdminJustification] = useState('Paper nomination form received 48+ hours prior');
 
   // Submission Status
   const [submittedMember, setSubmittedMember] = useState<Member | null>(null);
@@ -62,6 +68,15 @@ export const MembershipApplicationFlow: React.FC = () => {
       applicantEmail: email,
     };
 
+    // If Admin chooses to backdate to say it was completed 48 hours before
+    const isBackdated = isAdmin && adminBackdate48Hours;
+    const appliedAtIso = isBackdated
+      ? new Date(Date.now() - 49 * 3600 * 1000).toISOString()
+      : nowIso;
+    const eligibleAtIso = isBackdated
+      ? new Date(Date.now() - 1 * 3600 * 1000).toISOString()
+      : new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+
     const newMember: Member = {
       id: `mem-${Date.now()}`,
       memberNumber,
@@ -74,14 +89,24 @@ export const MembershipApplicationFlow: React.FC = () => {
       employerAddressOrWebsite: employerWebsiteOrAddress.trim(),
       employmentEvidenceNote: employmentEvidenceNote.trim() || undefined,
       photoUrl: photoUrl.trim() || '/src/assets/images/sample_member_photo_1790393794509.jpg',
-      status: 'waiting_48_hours',
-      appliedAt: nowIso,
-      eligibleAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+      status: isBackdated ? 'active' : 'waiting_48_hours',
+      appliedAt: appliedAtIso,
+      eligibleAt: eligibleAtIso,
+      approvedAt: isBackdated ? nowIso : undefined,
+      approvedBy: isBackdated ? currentStaff.name : undefined,
       ruleAcceptance,
-      notes: 'Submitted via digital application portal. Verified hospitality profession requirement.',
+      notes: isBackdated
+        ? `[ADMIN OVERRIDE by ${currentStaff.name}]: Sign-up was completed 48 hours before (${adminJustification}). Active on submission.`
+        : 'Submitted via digital application portal. Verified hospitality profession requirement.',
     };
 
-    clubStore.saveMember(newMember);
+    clubStore.saveMember(
+      newMember,
+      { id: currentStaff.id, name: currentStaff.name, role: currentStaff.role },
+      isBackdated
+        ? `Admin backdate override: verified sign-up was done 48 hours before (${adminJustification})`
+        : 'New applicant submission'
+    );
     setSubmittedMember(newMember);
   };
 
@@ -89,13 +114,19 @@ export const MembershipApplicationFlow: React.FC = () => {
   const minutes = Math.floor((timeRemainingSeconds % 3600) / 60);
   const seconds = timeRemainingSeconds % 60;
 
-  // Screen after submission: "APPLICATION RECEIVED"
+  // Screen after submission: "APPLICATION RECEIVED" or "MEMBERSHIP ACTIVATED (ADMIN OVERRIDE)"
   if (submittedMember) {
+    const isInstantActive = submittedMember.status === 'active';
+
     return (
       <div className="max-w-2xl mx-auto py-8 px-4 text-center">
         <div className="rounded-3xl bg-[#141012] border-2 border-[#581625] shadow-2xl p-6 sm:p-10 relative overflow-hidden">
-          <div className="w-16 h-16 rounded-2xl bg-[#2A0C14] border border-[#C6A052] flex items-center justify-center text-[#E5C378] mx-auto mb-5 shadow-lg">
-            <Clock className="w-8 h-8" />
+          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg border ${
+            isInstantActive
+              ? 'bg-emerald-950/80 border-emerald-500 text-emerald-400'
+              : 'bg-[#2A0C14] border-[#C6A052] text-[#E5C378]'
+          }`}>
+            {isInstantActive ? <CheckCircle2 className="w-8 h-8" /> : <Clock className="w-8 h-8" />}
           </div>
 
           <div className="text-xs font-mono tracking-widest text-[#9B7836] uppercase">
@@ -103,58 +134,73 @@ export const MembershipApplicationFlow: React.FC = () => {
           </div>
 
           <h1 className="font-serif text-3xl sm:text-4xl font-bold text-[#E5C378] mt-2 mb-3">
-            APPLICATION RECEIVED
+            {isInstantActive ? 'MEMBERSHIP ACTIVATED' : 'APPLICATION RECEIVED'}
           </h1>
 
-          <div className="p-4 rounded-xl bg-[#1E1418] border border-[#3E101B] my-6 text-stone-300 text-sm leading-relaxed text-left">
-            <p className="font-serif text-base text-[#E5C378] mb-2 font-medium">
-              “Membership applications are subject to review and a minimum 48-hour waiting period before membership privileges can begin.”
-            </p>
-            <p className="text-xs text-stone-400">
-              Pursuant to Westminster City Council club licensing regulations for 23 Frith Street, membership privileges, late-night door access, and member guest arrangements cannot commence until 48 full hours have elapsed.
-            </p>
-          </div>
+          {isInstantActive ? (
+            <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/50 my-6 text-stone-200 text-sm leading-relaxed text-left">
+              <div className="flex items-center gap-2 text-emerald-400 font-mono font-bold text-xs uppercase mb-1">
+                <Shield className="w-4 h-4" />
+                <span>Admin Override Applied · 48H Requirement Satisfied</span>
+              </div>
+              <p className="text-xs text-stone-300">
+                Application timestamp was officially backdated to 48 hours prior ({submittedMember.notes}). The applicant has been issued active membership and is immediately eligible for door admission and late-night guest sponsorship.
+              </p>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-[#1E1418] border border-[#3E101B] my-6 text-stone-300 text-sm leading-relaxed text-left">
+              <p className="font-serif text-base text-[#E5C378] mb-2 font-medium">
+                “Membership applications are subject to review and a minimum 48-hour waiting period before membership privileges can begin.”
+              </p>
+              <p className="text-xs text-stone-400">
+                Pursuant to Westminster City Council club licensing regulations for 23 Frith Street, membership privileges, late-night door access, and member guest arrangements cannot commence until 48 full hours have elapsed.
+              </p>
+            </div>
+          )}
 
-          {/* Live Countdown Timer */}
-          <div className="p-6 rounded-2xl bg-[#0B090A] border border-[#2B0A13] my-6">
-            <div className="text-xs font-mono uppercase tracking-widest text-stone-400 mb-2">
-              Mandatory Waiting Period Countdown
-            </div>
-            <div className="flex items-center justify-center gap-3 font-mono text-3xl sm:text-4xl font-bold text-[#E5C378]">
-              <div className="p-3 rounded-xl bg-[#181114] border border-[#3E101B] min-w-[70px]">
-                <div>{String(hours).padStart(2, '0')}</div>
-                <div className="text-[10px] text-stone-500 font-sans uppercase">Hours</div>
+          {/* Live Countdown Timer (only if still waiting) */}
+          {!isInstantActive && (
+            <div className="p-6 rounded-2xl bg-[#0B090A] border border-[#2B0A13] my-6">
+              <div className="text-xs font-mono uppercase tracking-widest text-stone-400 mb-2">
+                Mandatory Waiting Period Countdown
               </div>
-              <span className="text-stone-600">:</span>
-              <div className="p-3 rounded-xl bg-[#181114] border border-[#3E101B] min-w-[70px]">
-                <div>{String(minutes).padStart(2, '0')}</div>
-                <div className="text-[10px] text-stone-500 font-sans uppercase">Minutes</div>
+              <div className="flex items-center justify-center gap-3 font-mono text-3xl sm:text-4xl font-bold text-[#E5C378]">
+                <div className="p-3 rounded-xl bg-[#181114] border border-[#3E101B] min-w-[70px]">
+                  <div>{String(hours).padStart(2, '0')}</div>
+                  <div className="text-[10px] text-stone-500 font-sans uppercase">Hours</div>
+                </div>
+                <span className="text-stone-600">:</span>
+                <div className="p-3 rounded-xl bg-[#181114] border border-[#3E101B] min-w-[70px]">
+                  <div>{String(minutes).padStart(2, '0')}</div>
+                  <div className="text-[10px] text-stone-500 font-sans uppercase">Minutes</div>
+                </div>
+                <span className="text-stone-600">:</span>
+                <div className="p-3 rounded-xl bg-[#181114] border border-[#3E101B] min-w-[70px]">
+                  <div>{String(seconds).padStart(2, '0')}</div>
+                  <div className="text-[10px] text-stone-500 font-sans uppercase">Seconds</div>
+                </div>
               </div>
-              <span className="text-stone-600">:</span>
-              <div className="p-3 rounded-xl bg-[#181114] border border-[#3E101B] min-w-[70px]">
-                <div>{String(seconds).padStart(2, '0')}</div>
-                <div className="text-[10px] text-stone-500 font-sans uppercase">Seconds</div>
-              </div>
-            </div>
 
-            <div className="mt-4 p-3 rounded-lg bg-[#1D1115] border border-amber-500/20 text-xs text-amber-200/90 text-left flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-              <span>
-                <strong>Important Notice:</strong> Expiry of the 48-hour waiting period does not automatically guarantee approval. All candidates are reviewed by management for verified active employment in the hospitality trade.
-              </span>
+              <div className="mt-4 p-3 rounded-lg bg-[#1D1115] border border-amber-500/20 text-xs text-amber-200/90 text-left flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                <span>
+                  <strong>Important Notice:</strong> Expiry of the 48-hour waiting period does not automatically guarantee approval. All candidates are reviewed by management for verified active employment in the hospitality trade.
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-1 text-xs text-stone-400">
             <div>Candidate: <strong className="text-stone-200">{submittedMember.fullName}</strong></div>
             <div>Application Reference: <span className="font-mono text-[#E5C378]">{submittedMember.memberNumber}</span></div>
             <div>Trade Role: <span className="text-stone-300">{submittedMember.hospitalityRole} at {submittedMember.employer}</span></div>
+            <div>Status: <span className={`font-mono font-bold uppercase ${isInstantActive ? 'text-emerald-400' : 'text-amber-400'}`}>{submittedMember.status.replace('_', ' ')}</span></div>
           </div>
 
-          <div className="mt-8">
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               onClick={() => setSubmittedMember(null)}
-              className="px-6 py-2.5 rounded-xl bg-[#28181F] hover:bg-[#38222C] border border-[#C6A052]/40 text-[#E5C378] text-xs font-semibold"
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#28181F] hover:bg-[#38222C] border border-[#C6A052]/40 text-[#E5C378] text-xs font-semibold"
             >
               Submit Another Application
             </button>
@@ -369,6 +415,48 @@ export const MembershipApplicationFlow: React.FC = () => {
             </label>
           </div>
         </div>
+
+        {/* Admin 48-Hour Backdate Option */}
+        {isAdmin && (
+          <div className="p-4 rounded-xl bg-[#26150D] border-2 border-amber-500/60 shadow-lg space-y-3">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="adminBackdateCheck"
+                checked={adminBackdate48Hours}
+                onChange={(e) => setAdminBackdate48Hours(e.target.checked)}
+                className="mt-1 rounded bg-[#100806] border-amber-600/70 text-[#C6A052] focus:ring-0"
+              />
+              <div className="flex-1">
+                <label
+                  htmlFor="adminBackdateCheck"
+                  className="font-mono text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Shield className="w-3.5 h-3.5 text-[#E5C378]" />
+                  <span>Admin Option: Sign-Up was completed 48 hours before (Bypass 48h Wait)</span>
+                </label>
+                <p className="text-[11px] text-stone-300 mt-1 leading-relaxed">
+                  Record that this applicant’s paper nomination or register entry was physically completed 48+ hours prior. This backdates the submission timestamp to 48 hours ago, satisfying statutory compliance and granting immediate active door privileges upon submission.
+                </p>
+              </div>
+            </div>
+
+            {adminBackdate48Hours && (
+              <div className="pt-2 border-t border-amber-500/20 pl-7">
+                <label className="block text-[10px] font-mono uppercase text-amber-300/80 mb-1">
+                  Admin Verification Justification
+                </label>
+                <input
+                  type="text"
+                  value={adminJustification}
+                  onChange={(e) => setAdminJustification(e.target.value)}
+                  placeholder="e.g. Paper nomination form received 48 hours prior at reception"
+                  className="w-full px-3 py-1.5 bg-[#120B08] border border-amber-500/40 rounded text-xs text-stone-200 focus:outline-none focus:border-[#C6A052]"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Submit Button */}
         <div className="pt-4 border-t border-[#200A11] flex justify-end">

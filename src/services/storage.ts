@@ -169,6 +169,55 @@ export const clubStore = {
     notify();
   },
 
+  /**
+   * Admin-Only 48-Hour Waiting Period Bypass Option:
+   * Backdates the sign-up timestamp to 48+ hours ago (e.g. 49 hours prior)
+   * to officially record that nomination/application was done 48 hours before,
+   * activating the membership immediately and updating Cloud Firestore.
+   */
+  bypass48HourWaiting(memberId: string, actor: StaffUser, justification?: string): Member | null {
+    const members = this.getMembers();
+    const member = members.find((m) => m.id === memberId);
+    if (!member) return null;
+
+    const backdatedAppliedTime = new Date(Date.now() - 49 * 3600 * 1000).toISOString();
+    const backdatedEligibleTime = new Date(Date.now() - 1 * 3600 * 1000).toISOString();
+    const approvedAt = new Date().toISOString();
+
+    const previousStatus = member.status;
+    const updated: Member = {
+      ...member,
+      appliedAt: backdatedAppliedTime,
+      eligibleAt: backdatedEligibleTime,
+      status: 'active',
+      approvedAt,
+      approvedBy: actor.name,
+      notes: (member.notes ? member.notes + ' | ' : '') + `[ADMIN OVERRIDE by ${actor.name} (${actor.badgeNumber})]: Sign-up backdated to 48 hours prior (${justification || 'Paper application / prior historical register verified'}).`,
+    };
+
+    this.saveMember(
+      updated,
+      { id: actor.id, name: actor.name, role: actor.role },
+      justification || 'Admin override: backdated sign-up time to 48 hours prior'
+    );
+
+    this.addAuditLog({
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      action: 'ADMIN_BYPASS_48H_WAITING_BACKDATE',
+      targetType: 'member',
+      targetId: member.id,
+      targetName: member.fullName,
+      previousValue: previousStatus,
+      newValue: 'active',
+      reason: justification || 'Admin override: verified sign-up completed 48 hours prior',
+    });
+
+    return updated;
+  },
+
+
   // Staff & Auth
   getStaffList(): StaffUser[] {
     return getItem(STORAGE_KEYS.STAFF, INITIAL_STAFF);

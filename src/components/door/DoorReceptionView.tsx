@@ -18,6 +18,9 @@ import {
   Check,
   ChevronRight,
   AlertCircle,
+  Shield,
+  Sparkles,
+  Lock,
 } from 'lucide-react';
 import {
   Member,
@@ -776,11 +779,51 @@ export const DoorReceptionView: React.FC<DoorReceptionViewProps> = ({
                   </button>
                 </div>
               ) : scannedMember.status === 'waiting_48_hours' || scannedMember.status === 'pending' ? (
-                <div className="p-4 rounded-xl bg-[#181316] border border-[#3E101B] text-xs text-stone-300">
-                  <div className="font-semibold text-amber-400 mb-1">Statutory 48h Lockout</div>
-                  <p className="text-[11px] text-stone-400">
-                    Westminster Council Licensing Condition Section 2 strictly forbids door staff or managers from waiving or accelerating the 48-hour waiting period.
-                  </p>
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl bg-[#181316] border border-[#3E101B] text-xs text-stone-300">
+                    <div className="font-semibold text-amber-400 mb-1 flex items-center justify-between">
+                      <span>Statutory 48h Lockout</span>
+                      <span className="text-[10px] font-mono text-stone-400">Section 2</span>
+                    </div>
+                    <p className="text-[11px] text-stone-400 leading-relaxed">
+                      Westminster Licensing condition requires 48 continuous hours between nomination and membership privileges.
+                    </p>
+                  </div>
+
+                  {/* ADMIN OVERRIDE OPTION: Say was done 48 hours before */}
+                  {currentStaff.role === 'admin' || currentStaff.role === 'manager' ? (
+                    <div className="p-3.5 rounded-xl bg-[#26150D] border border-amber-500/50 text-xs">
+                      <div className="flex items-center gap-2 text-amber-300 font-mono font-bold uppercase text-[11px] mb-1">
+                        <Shield className="w-3.5 h-3.5 text-[#E5C378]" />
+                        <span>Admin Override Option</span>
+                      </div>
+                      <p className="text-[11px] text-amber-200/90 mb-3 leading-snug">
+                        Confirm that this sign-up was completed 48 hours before (e.g. historical register or paper application). This backdates the record to 48h prior and activates membership immediately.
+                      </p>
+                      <button
+                        onClick={() => {
+                          const updated = clubStore.bypass48HourWaiting(
+                            scannedMember.id,
+                            currentStaff,
+                            'Admin verified sign-up was completed 48 hours prior (paper nomination / historical register).'
+                          );
+                          if (updated) {
+                            setScannedMember(updated);
+                            setScanMessage(`Admin Override Applied: ${updated.fullName} backdated to 48 hours prior. Membership is now ACTIVE.`);
+                          }
+                        }}
+                        className="w-full py-2.5 px-3 rounded-lg bg-[#581625] hover:bg-[#721C31] border border-[#C6A052]/60 text-[#E5C378] font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-md"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-[#E5C378]" />
+                        <span>Bypass · Backdate Sign-Up to 48h Ago</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-xl bg-[#141012] border border-white/[0.06] text-[11px] text-stone-500 font-mono flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-stone-600" />
+                      <span>Admin login required to backdate sign-up time</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-700/50 text-rose-200 text-xs">

@@ -14,6 +14,7 @@ import {
   Plus,
   ArrowUpRight,
   TrendingUp,
+  Sparkles,
 } from 'lucide-react';
 import { Member, StaffUser, ClubRuleVersion, AuditEvent } from '../../types';
 import { clubStore } from '../../services/storage';
@@ -40,6 +41,19 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ curren
   );
   const [actionReason, setActionReason] = useState('');
 
+  // Admin 48-Hour Backdate Bypass Modal
+  const [backdateTargetMember, setBackdateTargetMember] = useState<Member | null>(null);
+  const [backdateJustification, setBackdateJustification] = useState(
+    'Paper nomination form received 48+ hours prior'
+  );
+
+  // Reject Application Modal
+  const [rejectTargetMember, setRejectTargetMember] = useState<Member | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  // Error / Warning Message
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   // New Rule Version Modal state
   const [showNewRuleModal, setShowNewRuleModal] = useState(false);
   const [newRuleVersion, setNewRuleVersion] = useState('');
@@ -64,7 +78,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ curren
     // Server-grade validation check
     const waitCheck = validate48HourWaitingPeriod(member.appliedAt);
     if (!waitCheck.allowed) {
-      alert(`Cannot approve: ${waitCheck.reason}`);
+      setErrorMessage(`Cannot approve: ${waitCheck.reason}`);
       return;
     }
 
@@ -82,23 +96,50 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ curren
     );
   };
 
-  const handleReject = (member: Member) => {
+  // Admin Option: Open modal to bypass 48-Hour Waiting by backdating sign-up time
+  const handleOpenAdminBackdateModal = (member: Member) => {
     if (!isAuthorizedManager) return;
-    const reason = prompt('Please enter rejection reason:');
-    if (!reason) return;
+    setBackdateTargetMember(member);
+    setBackdateJustification('Paper nomination form received 48+ hours prior');
+  };
+
+  const handleConfirmAdminBackdate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!backdateTargetMember || !isAuthorizedManager) return;
+
+    clubStore.bypass48HourWaiting(
+      backdateTargetMember.id,
+      currentStaff,
+      backdateJustification || 'Paper nomination form received 48+ hours prior'
+    );
+
+    setBackdateTargetMember(null);
+  };
+
+  const handleOpenRejectModal = (member: Member) => {
+    if (!isAuthorizedManager) return;
+    setRejectTargetMember(member);
+    setRejectReason('');
+  };
+
+  const handleConfirmReject = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectTargetMember || !isAuthorizedManager) return;
 
     const updated: Member = {
-      ...member,
+      ...rejectTargetMember,
       status: 'revoked',
       revokedAt: new Date().toISOString(),
-      revokedReason: reason,
+      revokedReason: rejectReason || 'Did not meet membership requirements',
     };
 
     clubStore.saveMember(
       updated,
       { id: currentStaff.id, name: currentStaff.name, role: currentStaff.role },
-      `Application rejected. Reason: ${reason}`
+      `Application rejected. Reason: ${rejectReason || 'Did not meet requirements'}`
     );
+
+    setRejectTargetMember(null);
   };
 
   const handleExecuteMemberAction = (e: React.FormEvent) => {
@@ -188,6 +229,22 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ curren
           </div>
         )}
       </div>
+
+      {/* Error / Warning Alert Banner */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-rose-950/80 border border-rose-500/60 text-rose-200 text-xs flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-rose-400 hover:text-white p-1 rounded font-mono text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* KPI METRIC CARDS */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -383,18 +440,36 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ curren
 
                     {/* Actions */}
                     <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => handleApprove(app)}
-                        disabled={!isEligibleForApproval || !isAuthorizedManager}
-                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-600/50 text-emerald-200 text-xs font-mono font-bold disabled:opacity-30 disabled:cursor-not-allowed shadow transition-colors"
-                        title={
-                          !isEligibleForApproval
-                            ? 'Approval blocked: 48-hour statutory waiting period active'
-                            : 'Approve application'
-                        }
-                      >
-                        {isEligibleForApproval ? 'Approve Membership' : '48h Lock Active'}
-                      </button>
+                      {isEligibleForApproval ? (
+                        <button
+                          onClick={() => handleApprove(app)}
+                          disabled={!isAuthorizedManager}
+                          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-600/50 text-emerald-200 text-xs font-mono font-bold disabled:opacity-30 disabled:cursor-not-allowed shadow transition-colors"
+                        >
+                          Approve Membership
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            disabled
+                            className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-[#181114] border border-amber-600/30 text-amber-400 text-xs font-mono disabled:opacity-50 cursor-not-allowed"
+                            title="Standard 48-hour countdown is currently active"
+                          >
+                            48h Lock Active
+                          </button>
+
+                          {isAuthorizedManager && (
+                            <button
+                              onClick={() => handleOpenAdminBackdateModal(app)}
+                              className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-[#581625] hover:bg-[#741E33] border border-[#C6A052]/60 text-[#E5C378] text-xs font-mono font-bold shadow flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                              title="Admin option: record that sign-up was completed 48 hours before"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-[#E5C378]" />
+                              <span>Admin Bypass (Done 48h Prior)</span>
+                            </button>
+                          )}
+                        </>
+                      )}
 
                       <button
                         onClick={() => {
@@ -408,7 +483,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ curren
                       </button>
 
                       <button
-                        onClick={() => handleReject(app)}
+                        onClick={() => handleOpenRejectModal(app)}
                         disabled={!isAuthorizedManager}
                         className="w-full sm:w-auto px-3 py-2 rounded-xl bg-[#280C14] hover:bg-[#3E101B] border border-rose-600/40 text-rose-300 text-xs font-mono disabled:opacity-40"
                       >
@@ -737,6 +812,113 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ curren
                   className="px-4 py-2 rounded-lg bg-[#581625] hover:bg-[#6F1C30] border border-[#C6A052]/40 text-[#E5C378] text-xs font-mono font-bold"
                 >
                   Publish Version
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADMIN 48-HOUR BACKDATE OVERRIDE MODAL */}
+      {backdateTargetMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-[#121214] border border-[#581625] shadow-2xl p-6">
+            <div className="flex items-center gap-2.5 text-[#E5C378] mb-2">
+              <Shield className="w-5 h-5 text-[#C6A052]" />
+              <h3 className="font-serif text-lg font-bold">
+                Admin 48-Hour Backdate Override
+              </h3>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#26150D] border border-amber-600/40 text-xs text-amber-200/90 mb-4 space-y-1">
+              <div className="font-bold text-amber-300">
+                Applicant: {backdateTargetMember.fullName} ({backdateTargetMember.memberNumber})
+              </div>
+              <p className="text-[11px] leading-relaxed">
+                Westminster Licensing statutory condition requires 48 continuous hours between nomination and privileges. Use this option to certify that the nomination or paper application was physically completed 48+ hours ago.
+              </p>
+              <div className="text-[10px] text-amber-400 font-mono pt-1">
+                ● Backdates applied timestamp to 49 hours ago<br />
+                ● Immediately activates membership status<br />
+                ● Permanently logs audit trail under {currentStaff.name} ({currentStaff.badgeNumber})
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmAdminBackdate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-stone-300 mb-1">
+                  Regulatory Justification / Reference *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={backdateJustification}
+                  onChange={(e) => setBackdateJustification(e.target.value)}
+                  placeholder="e.g. Paper nomination form received 48+ hours prior at reception"
+                  className="w-full px-3.5 py-2.5 bg-[#0B090A] border border-[#3E101B] rounded-lg text-xs text-stone-200 focus:outline-none focus:border-[#C6A052]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setBackdateTargetMember(null)}
+                  className="px-4 py-2 rounded-lg bg-[#221B1E] text-xs text-stone-300 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-lg bg-[#581625] hover:bg-[#6F1C30] border border-[#C6A052]/50 text-[#E5C378] text-xs font-mono font-bold shadow-lg flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#E5C378]" />
+                  <span>Confirm & Activate Immediately</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: REJECT APPLICANT MODAL */}
+      {rejectTargetMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-[#121214] border border-rose-900/60 shadow-2xl p-6">
+            <h3 className="font-serif text-lg font-bold text-rose-300">
+              Reject Application: {rejectTargetMember.fullName}
+            </h3>
+            <p className="text-xs text-stone-300 mt-1 mb-4">
+              Specify reason for refusal (e.g. non-hospitality profession, incomplete verification, regulatory grounds).
+            </p>
+
+            <form onSubmit={handleConfirmReject} className="space-y-4">
+              <div>
+                <label className="block text-xs font-mono uppercase text-stone-400 mb-1">
+                  Reason for Rejection *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="State statutory or governance reason..."
+                  className="w-full px-3 py-2 bg-[#0B090A] border border-[#3E101B] rounded-lg text-xs text-stone-200 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRejectTargetMember(null)}
+                  className="px-4 py-2 rounded-lg bg-[#221B1E] text-xs text-stone-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-rose-900/80 hover:bg-rose-800 border border-rose-600/50 text-rose-200 text-xs font-mono font-bold"
+                >
+                  Confirm Rejection
                 </button>
               </div>
             </form>
