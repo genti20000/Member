@@ -40,6 +40,9 @@ import { verifyMemberToken } from '../../services/security';
 import { SmokingManagerModal } from './SmokingManagerModal';
 import { IncidentLoggerModal } from './IncidentLoggerModal';
 import { CameraQRScannerModal } from './CameraQRScannerModal';
+import { FrontFacingQrScanner } from './FrontFacingQrScanner';
+import { QrReader } from 'react-qr-reader';
+import { parseMemberFromQRToken } from '../../services/security';
 
 interface DoorReceptionViewProps {
   currentStaff: StaffUser;
@@ -65,6 +68,12 @@ export const DoorReceptionView: React.FC<DoorReceptionViewProps> = ({
   const [showCheckOutModal, setShowCheckOutModal] = useState(false);
   const [showScannerModal, setShowScannerModal] = useState(false);
 
+  // iPad Front-Camera Live Scanner Deck
+  const [isKioskScannerActive, setIsKioskScannerActive] = useState(false);
+  const [kioskScanFlash, setKioskScanFlash] = useState<'success' | 'failure' | null>(null);
+  const [kioskFeedbackMessage, setKioskFeedbackMessage] = useState<string | null>(null);
+  const [cameraPermissionStatus, setCameraPermissionStatus] = useState<'granted' | 'prompt' | 'denied' | 'checking'>('checking');
+
   // Selected Member Status Panel (Active / Waiting / Suspended)
   const [scannedMember, setScannedMember] = useState<Member | null>(null);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
@@ -82,6 +91,67 @@ export const DoorReceptionView: React.FC<DoorReceptionViewProps> = ({
   // Search state
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [checkoutSearchQuery, setCheckoutSearchQuery] = useState('');
+
+  // Check camera permissions respecting metadata.json ("camera" in requestFramePermissions)
+  useEffect(() => {
+    async function checkCameraPerm() {
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const status = await navigator.permissions.query({ name: 'camera' as PermissionName });
+          setCameraPermissionStatus(status.state as 'granted' | 'prompt' | 'denied');
+          status.onchange = () => {
+            setCameraPermissionStatus(status.state as 'granted' | 'prompt' | 'denied');
+          };
+        } catch {
+          setCameraPermissionStatus('prompt');
+        }
+      } else {
+        setCameraPermissionStatus('prompt');
+      }
+    }
+    checkCameraPerm();
+  }, []);
+
+  // Handle live QR code scanning directly from iPad front-facing camera via react-qr-reader
+  const handleLiveQrScanned = (rawText: string) => {
+    if (!rawText) return;
+    const members = clubStore.getMembers();
+    const tokenResult = parseMemberFromQRToken(rawText, members);
+
+    let memberMatch: Member | null = null;
+    let isValid = false;
+
+    if (tokenResult.valid && tokenResult.member) {
+      const found = tokenResult.member as Member;
+      memberMatch = found;
+      isValid = found.status === 'active';
+    } else {
+      const direct = members.find(
+        (m) =>
+          m.id.toLowerCase() === rawText.trim().toLowerCase() ||
+          m.memberNumber.toLowerCase() === rawText.trim().toLowerCase()
+      );
+      if (direct) {
+        memberMatch = direct;
+        isValid = direct.status === 'active';
+      }
+    }
+
+    if (isValid && memberMatch) {
+      setKioskScanFlash('success');
+      setKioskFeedbackMessage(`Verified: ${memberMatch.fullName} (${memberMatch.memberNumber})`);
+      handleSelectMember(memberMatch);
+      setTimeout(() => setKioskScanFlash(null), 1200);
+    } else {
+      setKioskScanFlash('failure');
+      setKioskFeedbackMessage(
+        memberMatch
+          ? `Member status is "${memberMatch.status.toUpperCase()}"`
+          : 'Unrecognized QR code'
+      );
+      setTimeout(() => setKioskScanFlash(null), 1500);
+    }
+  };
 
   // Update on store updates and tick clock
   useEffect(() => {
@@ -312,233 +382,215 @@ export const DoorReceptionView: React.FC<DoorReceptionViewProps> = ({
   });
 
   return (
-    <div className="space-y-6">
-      {/* 1. MASTER HEADER & VENUE LIVE STATS STRIP */}
-      <div className="rounded-2xl bg-gradient-to-b from-[#181215] to-[#100D0F] border border-[#3E101B] shadow-xl p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[#280C14]">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#E5C378] animate-pulse" />
-              <h1 className="font-serif text-2xl sm:text-3xl font-bold tracking-wide text-[#E5C378]">
-                JONNY’S SOHO
-              </h1>
-            </div>
-            <div className="text-xs font-mono tracking-widest text-[#9B7836] uppercase mt-0.5">
-              MEMBERS · 23 FRITH STREET RECEPTION & DOOR CONTROL
-            </div>
+    <div className="flex flex-col">
+      {/* Utility Grid - Variation 6 Specification */}
+      <section className="utility-grid grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-px bg-white/[0.08] border-b border-white/[0.08]">
+        <div className="util-box">
+          <div className="label">Venue Cap</div>
+          <div className="value">
+            {stats.totalCustomers}
+            <span className="text-base sm:text-lg opacity-30">/80</span>
           </div>
-
-          {/* Active Night Mode Banner */}
-          <div
-            className={`px-4 py-2 rounded-xl border flex items-center gap-3 transition-colors ${
-              nightMode.mode === 'no_new_admissions'
-                ? 'bg-[#3E101B] border-rose-500/70 text-rose-200'
-                : nightMode.mode === 'members_mode'
-                ? 'bg-[#38240D] border-amber-500/70 text-amber-200'
-                : 'bg-[#151214] border-[#581625]/60 text-stone-200'
-            }`}
-          >
-            <div className="w-8 h-8 rounded-lg bg-black/40 flex items-center justify-center shrink-0">
-              {nightMode.mode === 'no_new_admissions' ? (
-                <XCircle className="w-5 h-5 text-rose-400" />
-              ) : nightMode.mode === 'members_mode' ? (
-                <Clock className="w-5 h-5 text-amber-400" />
-              ) : (
-                <CheckCircle2 className="w-5 h-5 text-[#E5C378]" />
-              )}
-            </div>
-            <div>
-              <div className="text-xs font-mono font-bold tracking-wider uppercase">
-                {nightMode.label}
-              </div>
-              <div className="text-[11px] opacity-85 leading-tight">
-                {nightMode.subtext}
-              </div>
-            </div>
+          <div className="text-[10px] font-mono text-stone-500 mt-1">
+            Max 80 customer cap
           </div>
         </div>
 
-        {/* 2. THE 5 STATUTORY LIVE COUNTERS (Per Brief Requirement) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-5">
-          {/* VENUE 63 / 80 */}
-          <div className="p-3.5 rounded-xl bg-[#120F11] border border-[#2B0A13] flex flex-col justify-between">
-            <div className="text-[11px] font-mono uppercase tracking-wider text-stone-400 flex items-center justify-between">
-              <span>VENUE</span>
-              <span className="text-[10px] text-stone-500 font-sans">Max 80</span>
-            </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span
-                className={`font-mono text-2xl sm:text-3xl font-bold tabular-nums ${
-                  stats.totalCustomers >= MAX_CUSTOMER_CAPACITY
-                    ? 'text-rose-400'
-                    : stats.totalCustomers >= 70
-                    ? 'text-amber-400'
-                    : 'text-[#E5C378]'
-                }`}
-              >
-                {stats.totalCustomers}
-              </span>
-              <span className="font-mono text-sm text-stone-400">/ 80</span>
-            </div>
-            <div className="mt-2 w-full bg-[#1C1619] h-1.5 rounded-full overflow-hidden">
-              <div
-                className={`h-full ${
-                  stats.totalCustomers >= 80 ? 'bg-rose-500' : stats.totalCustomers >= 70 ? 'bg-amber-500' : 'bg-[#C6A052]'
-                }`}
-                style={{ width: `${Math.min(100, (stats.totalCustomers / 80) * 100)}%` }}
-              />
-            </div>
-          </div>
-
-          {/* MEMBERS 34 */}
-          <div className="p-3.5 rounded-xl bg-[#120F11] border border-[#2B0A13] flex flex-col justify-between">
-            <div className="text-[11px] font-mono uppercase tracking-wider text-stone-400">
-              MEMBERS
-            </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span className="font-mono text-2xl sm:text-3xl font-bold text-stone-200 tabular-nums">
-                {stats.membersInside}
-              </span>
-              <span className="text-xs text-stone-400">inside</span>
-            </div>
-            <div className="mt-2 text-[10px] text-stone-500">Active member badges</div>
-          </div>
-
-          {/* MEMBER GUESTS 25 */}
-          <div className="p-3.5 rounded-xl bg-[#120F11] border border-[#2B0A13] flex flex-col justify-between">
-            <div className="text-[11px] font-mono uppercase tracking-wider text-stone-400">
-              MEMBER GUESTS
-            </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span className="font-mono text-2xl sm:text-3xl font-bold text-stone-200 tabular-nums">
-                {stats.guestsInside}
-              </span>
-              <span className="text-xs text-stone-400">inside</span>
-            </div>
-            <div className="mt-2 text-[10px] text-stone-500">Max 2 per member</div>
-          </div>
-
-          {/* PROPRIETOR GUESTS 4 / 5 */}
-          <div className="p-3.5 rounded-xl bg-[#120F11] border border-[#2B0A13] flex flex-col justify-between">
-            <div className="text-[11px] font-mono uppercase tracking-wider text-stone-400 flex items-center justify-between">
-              <span>PROPRIETOR</span>
-              <span className="text-[10px] text-stone-500 font-sans">Max 5</span>
-            </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span
-                className={`font-mono text-2xl sm:text-3xl font-bold tabular-nums ${
-                  stats.proprietorGuestsInside >= MAX_PROPRIETOR_GUESTS_CONCURRENT
-                    ? 'text-rose-400'
-                    : 'text-[#E5C378]'
-                }`}
-              >
-                {stats.proprietorGuestsInside}
-              </span>
-              <span className="font-mono text-sm text-stone-400">/ 5</span>
-            </div>
-            <div className="mt-2 text-[10px] text-stone-500">Manager authorized</div>
-          </div>
-
-          {/* SMOKERS OUTSIDE 6 / 10 */}
-          <div
-            onClick={() => setShowSmokingModal(true)}
-            className="p-3.5 rounded-xl bg-[#120F11] hover:bg-[#1A1417] border border-[#2B0A13] hover:border-amber-500/40 flex flex-col justify-between cursor-pointer transition-colors"
-          >
-            <div className="text-[11px] font-mono uppercase tracking-wider text-stone-400 flex items-center justify-between">
-              <span className="flex items-center gap-1 text-amber-300">
-                <Flame className="w-3.5 h-3.5" /> SMOKERS
-              </span>
-              <span className="text-[10px] text-stone-500 font-sans">Max 10</span>
-            </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span
-                className={`font-mono text-2xl sm:text-3xl font-bold tabular-nums ${
-                  stats.smokersOutside >= MAX_SMOKERS_OUTSIDE
-                    ? 'text-rose-400'
-                    : stats.smokersOutside >= 8
-                    ? 'text-amber-400'
-                    : 'text-[#E5C378]'
-                }`}
-              >
-                {stats.smokersOutside}
-              </span>
-              <span className="font-mono text-sm text-stone-400">/ 10</span>
-            </div>
-            <div className="mt-2 text-[10px] text-amber-400/90 flex items-center justify-between">
-              <span>Frith St Terrace</span>
-              <ChevronRight className="w-3 h-3" />
-            </div>
+        <div className="util-box">
+          <div className="label">Live Members</div>
+          <div className="value">{stats.membersInside}</div>
+          <div className="text-[10px] font-mono text-stone-500 mt-1">
+            Active passholders
           </div>
         </div>
-      </div>
 
-      {/* 3. PRIMARY TOUCH ACTIONS (Large iPad Touch Targets: Min 54px) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 sm:gap-3">
-        {/* SCAN MEMBER */}
-        <button
-          onClick={() => setShowScannerModal(true)}
-          className="h-16 rounded-xl bg-gradient-to-b from-[#581625] to-[#3E101B] hover:from-[#6B1B2D] hover:to-[#4C1422] border border-[#C6A052]/50 text-[#E5C378] flex flex-col items-center justify-center gap-1 shadow-lg active:scale-[0.98] transition-all"
-        >
-          <QrCode className="w-5 h-5 text-amber-200" />
-          <span className="text-xs font-mono font-bold tracking-wider">SCAN MEMBER</span>
-        </button>
+        <div className="util-box">
+          <div className="label">Member Guests</div>
+          <div className="value text-[#f2f2f2]">{stats.guestsInside}</div>
+          <div className="text-[10px] font-mono text-stone-500 mt-1">
+            Max 2 per member
+          </div>
+        </div>
 
-        {/* SEARCH MEMBER */}
-        <button
-          onClick={() => setShowMemberLookup(true)}
-          className="h-16 rounded-xl bg-[#181316] hover:bg-[#221B1E] border border-[#3E101B] text-stone-200 flex flex-col items-center justify-center gap-1 shadow-md active:scale-[0.98] transition-all"
-        >
-          <Search className="w-5 h-5 text-stone-300" />
-          <span className="text-xs font-mono font-bold tracking-wider">SEARCH</span>
-        </button>
+        <div className="util-box">
+          <div className="label">Proprietor</div>
+          <div className="value">
+            {stats.proprietorGuestsInside}
+            <span className="text-base sm:text-lg opacity-30">/5</span>
+          </div>
+          <div className="text-[10px] font-mono text-stone-500 mt-1">
+            Manager authorized
+          </div>
+        </div>
 
-        {/* ADD GUEST */}
-        <button
-          onClick={() => setShowAddGuestModal(true)}
-          disabled={nightMode.mode === 'no_new_admissions'}
-          className="h-16 rounded-xl bg-[#181316] hover:bg-[#221B1E] border border-[#3E101B] text-stone-200 disabled:opacity-40 disabled:hover:bg-[#181316] flex flex-col items-center justify-center gap-1 shadow-md active:scale-[0.98] transition-all"
-        >
-          <UserPlus className="w-5 h-5 text-stone-300" />
-          <span className="text-xs font-mono font-bold tracking-wider">ADD GUEST</span>
-        </button>
-
-        {/* PROPRIETOR GUEST */}
-        <button
-          onClick={() => setShowProprietorGuestModal(true)}
-          disabled={nightMode.mode === 'no_new_admissions'}
-          className="h-16 rounded-xl bg-[#1F1710] hover:bg-[#2B2016] border border-[#C6A052]/30 text-amber-200 disabled:opacity-40 flex flex-col items-center justify-center gap-1 shadow-md active:scale-[0.98] transition-all"
-        >
-          <Crown className="w-5 h-5 text-[#E5C378]" />
-          <span className="text-xs font-mono font-bold tracking-wider">PROPRIETOR</span>
-        </button>
-
-        {/* CHECK OUT */}
-        <button
-          onClick={() => setShowCheckOutModal(true)}
-          className="h-16 rounded-xl bg-[#181316] hover:bg-[#221B1E] border border-[#3E101B] text-stone-200 flex flex-col items-center justify-center gap-1 shadow-md active:scale-[0.98] transition-all"
-        >
-          <LogOut className="w-5 h-5 text-stone-300" />
-          <span className="text-xs font-mono font-bold tracking-wider">CHECK OUT</span>
-        </button>
-
-        {/* SMOKING */}
-        <button
+        <div
           onClick={() => setShowSmokingModal(true)}
-          className="h-16 rounded-xl bg-[#1B1417] hover:bg-[#261C20] border border-[#3E101B] text-amber-300 flex flex-col items-center justify-center gap-1 shadow-md active:scale-[0.98] transition-all"
+          className="util-box cursor-pointer hover:bg-[#18181c] transition-colors col-span-2 md:col-span-1"
         >
-          <Flame className="w-5 h-5 text-amber-400" />
-          <span className="text-xs font-mono font-bold tracking-wider">SMOKING</span>
-        </button>
+          <div className="label flex items-center justify-between">
+            <span className="text-amber-400/80">Smoking Cap</span>
+            <span className="text-amber-400">Terrace</span>
+          </div>
+          <div className="value text-[#C6A052]">
+            {stats.smokersOutside}
+            <span className="text-base sm:text-lg opacity-30">/10</span>
+          </div>
+          <div className="text-[10px] font-mono text-amber-400/70 mt-1 flex items-center justify-between">
+            <span>Click to manage</span>
+            <ChevronRight className="w-3 h-3" />
+          </div>
+        </div>
+      </section>
 
-        {/* INCIDENT */}
-        <button
-          onClick={() => setShowIncidentModal(true)}
-          className="h-16 col-span-2 sm:col-span-1 rounded-xl bg-[#260C14] hover:bg-[#34111C] border border-rose-500/40 text-rose-300 flex flex-col items-center justify-center gap-1 shadow-md active:scale-[0.98] transition-all"
-        >
-          <ShieldAlert className="w-5 h-5 text-rose-400" />
-          <span className="text-xs font-mono font-bold tracking-wider">INCIDENT</span>
-        </button>
-      </div>
+      {/* Main Workspace - Variation 6 Specification (2 Panes) */}
+      <section className="workspace p-6 sm:p-10 grid grid-cols-1 lg:grid-cols-[1fr_360px] xl:grid-cols-[1fr_420px] gap-8">
+        {/* Left Pane: Camera Surface & Control Grid */}
+        <div className="pane space-y-6">
+          {/* Camera Surface */}
+          <div className="camera-surface">
+            {isKioskScannerActive ? (
+              <div className="relative w-full h-full flex items-center justify-center bg-black">
+                {/* Visual Flash Feedback Layer */}
+                {kioskScanFlash === 'success' && (
+                  <div className="absolute inset-0 z-30 pointer-events-none animate-scan-success border-4 border-emerald-400 bg-emerald-500/20" />
+                )}
+                {kioskScanFlash === 'failure' && (
+                  <div className="absolute inset-0 z-30 pointer-events-none animate-scan-failure border-4 border-rose-500 bg-rose-500/25" />
+                )}
+
+                {/* Live react-qr-reader */}
+                <QrReader
+                  constraints={{ facingMode: 'user', aspectRatio: 16 / 10 }}
+                  scanDelay={300}
+                  onResult={(result) => {
+                    if (result) {
+                      const text = result.getText();
+                      if (text) {
+                        handleLiveQrScanned(text);
+                      }
+                    }
+                  }}
+                  className="w-full h-full"
+                  containerStyle={{ width: '100%', height: '100%' }}
+                  videoContainerStyle={{ width: '100%', height: '100%', paddingTop: 0 }}
+                  videoStyle={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    transform: 'scaleX(-1)',
+                  }}
+                />
+
+                {/* Viewfinder Reticle with scannerLaser line */}
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                  <div className="relative w-56 h-56 sm:w-64 sm:h-64 border-2 border-[#C6A052]/80 rounded-xl">
+                    <div className="absolute -top-1 -left-1 w-5 h-5 border-t-2 border-l-2 border-[#C6A052]" />
+                    <div className="absolute -top-1 -right-1 w-5 h-5 border-t-2 border-r-2 border-[#C6A052]" />
+                    <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-2 border-l-2 border-[#C6A052]" />
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-2 border-r-2 border-[#C6A052]" />
+
+                    <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-[#E5C378] to-transparent shadow-[0_0_12px_#E5C378] animate-[scannerLaser_2.4s_ease-in-out_infinite]" />
+                  </div>
+                </div>
+
+                {kioskFeedbackMessage && (
+                  <div className="absolute top-3 inset-x-4 z-30 text-center">
+                    <span
+                      className={`px-4 py-1.5 rounded text-xs font-mono font-bold shadow-2xl inline-block ${
+                        kioskScanFlash === 'success'
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-500'
+                          : 'bg-rose-950 text-rose-300 border border-rose-600'
+                      }`}
+                    >
+                      {kioskFeedbackMessage}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center p-6 text-center space-y-3">
+                <div className="label tracking-[4px]">Kiosk Cam Standby</div>
+                <div className="text-xs text-white/40 max-w-xs font-mono">
+                  Front iPad kiosk camera is ready to read digital member passes.
+                </div>
+                <button
+                  onClick={() => setIsKioskScannerActive(true)}
+                  className="px-4 py-2 bg-[#1a1a1e] hover:bg-[#581625] border border-white/[0.08] hover:border-[#581625] text-[#C6A052] font-mono text-xs uppercase tracking-wider rounded transition-colors"
+                >
+                  Activate Live Kiosk Feed
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Control Grid - Exact Variation 6 Specification */}
+          <div className="control-grid grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <button
+              onClick={() => setShowScannerModal(true)}
+              className="button-var primary"
+            >
+              <QrCode className="w-5 h-5 text-[#C6A052]" />
+              <span>Scan Badge</span>
+            </button>
+
+            <button
+              onClick={() => setShowMemberLookup(true)}
+              className="button-var"
+            >
+              <Search className="w-5 h-5 text-stone-300" />
+              <span>Database Search</span>
+            </button>
+
+            <button
+              onClick={() => setShowAddGuestModal(true)}
+              disabled={nightMode.mode === 'no_new_admissions'}
+              className="button-var disabled:opacity-30"
+            >
+              <UserPlus className="w-5 h-5 text-stone-300" />
+              <span>Guest Registry</span>
+            </button>
+
+            <button
+              onClick={() => setShowProprietorGuestModal(true)}
+              disabled={nightMode.mode === 'no_new_admissions'}
+              className="button-var disabled:opacity-30"
+            >
+              <Crown className="w-5 h-5 text-[#C6A052]" />
+              <span>Proprietor Check</span>
+            </button>
+
+            <button
+              onClick={() => setShowCheckOutModal(true)}
+              className="button-var"
+            >
+              <LogOut className="w-5 h-5 text-stone-300" />
+              <span>Checkout Mode</span>
+            </button>
+
+            <button
+              onClick={() => setShowSmokingModal(true)}
+              className="button-var gold"
+            >
+              <Flame className="w-5 h-5 text-black" />
+              <span>Smoking Entry</span>
+            </button>
+
+            <button
+              onClick={() => setShowIncidentModal(true)}
+              className="button-var col-span-2 hover:bg-[#581625]"
+            >
+              <ShieldAlert className="w-5 h-5 text-rose-400" />
+              <span>Incident Reporting</span>
+            </button>
+
+            <button
+              onClick={() => setIsKioskScannerActive((prev) => !prev)}
+              className="button-var"
+            >
+              <Camera className="w-5 h-5 text-amber-300" />
+              <span>Manual Toggle</span>
+            </button>
+          </div>
 
       {/* 4. SCANNED MEMBER STATUS PANEL (Per Spec) */}
       {scannedMember && (
@@ -750,137 +802,108 @@ export const DoorReceptionView: React.FC<DoorReceptionViewProps> = ({
           )}
         </div>
       )}
-
-      {/* 5. CURRENT VENUE OCCUPANTS & ACTIVE REGISTER PREVIEW */}
-      <div className="rounded-2xl bg-[#120F11] border border-[#2B0A13] p-5 sm:p-6 shadow-xl">
-        <div className="flex items-center justify-between pb-4 border-b border-[#200A11]">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-[#C6A052]" />
-            <h2 className="font-serif text-lg sm:text-xl font-bold text-stone-200">
-              Live Attendance Register ({activeVisits.length} Records Inside)
-            </h2>
-          </div>
-          <span className="text-xs font-mono text-stone-400">
-            Staff On-Duty: <strong>{stats.staffInside}</strong> (Excluded from 80 cap)
-          </span>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
-          {activeVisits.length === 0 ? (
-            <div className="text-center py-12 text-xs text-stone-500 border border-dashed border-[#200A11] rounded-xl">
-              No patrons currently checked in.
+        {/* Right Pane: Live Attendance Register (occupancy-log) */}
+        <div className="pane">
+          <div className="occupancy-log bg-[#111113] border border-white/[0.08] p-5 h-full flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+              <div className="label mb-0">Live Attendance Register</div>
+              <span className="font-mono text-[10px] text-[#C6A052]">
+                {activeVisits.length} INSIDE
+              </span>
             </div>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-[#200A11] text-stone-400 font-mono uppercase text-[10px]">
-                  <th className="pb-3">Type</th>
-                  <th className="pb-3">Name / Number</th>
-                  <th className="pb-3">Guests</th>
-                  <th className="pb-3">Check-In</th>
-                  <th className="pb-3">Status</th>
-                  <th className="pb-3 text-right">Quick Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1D0C13]">
-                {activeVisits.map((v) => (
-                  <tr key={v.id} className="hover:bg-[#181316]/50 transition-colors">
-                    <td className="py-3">
-                      <span
-                        className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded border ${
-                          v.attendeeType === 'proprietor_guest'
-                            ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-                            : v.attendeeType === 'member_guest'
-                            ? 'bg-purple-950/40 border-purple-500/40 text-purple-300'
-                            : 'bg-[#2A1017] border-[#581625] text-[#E5C378]'
-                        }`}
-                      >
-                        {v.attendeeType.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="py-3 font-medium text-stone-200">
-                      <div>{v.memberName}</div>
-                      {v.memberNumber && (
-                        <div className="text-[10px] font-mono text-[#C6A052]">
-                          {v.memberNumber}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 text-stone-300">
-                      {v.guestNames && v.guestNames.length > 0 ? (
-                        <div className="space-y-0.5">
-                          {v.guestNames.map((g, idx) => (
-                            <div key={idx} className="text-[11px] text-stone-300 font-medium">
-                              · {g}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-stone-500">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 font-mono text-stone-400 text-[11px]">
-                      {new Date(v.checkInTime).toLocaleTimeString('en-GB', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
-                    <td className="py-3">
-                      {v.isOutToSmoke ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/30">
-                          <Flame className="w-3 h-3" /> Smoking outside
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-emerald-400">Inside</span>
-                      )}
-                    </td>
-                    <td className="py-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {v.isOutToSmoke ? (
-                          <button
-                            onClick={() => {
-                              const patron = clubStore
-                                .getSmokingPatrons()
-                                .find((p) => p.visitId === v.id);
-                              if (patron) clubStore.markSmokingReturned(patron.id);
-                            }}
-                            className="px-2.5 py-1 text-[11px] bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 text-amber-200 rounded font-mono"
-                          >
-                            Mark Returned
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              clubStore.markOutToSmoke({
-                                visitId: v.id,
-                                name: v.memberName,
-                                type: v.attendeeType === 'proprietor_guest' ? 'proprietor_guest' : v.attendeeType === 'member_guest' ? 'guest' : 'member',
-                              });
-                            }}
-                            disabled={stats.smokersOutside >= MAX_SMOKERS_OUTSIDE}
-                            className="px-2 py-1 text-[10px] bg-[#1F171A] hover:bg-[#2B2024] text-stone-300 rounded border border-[#3E101B] disabled:opacity-40"
-                          >
-                            Smoke
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleCheckOut(v.id)}
-                          className="px-2.5 py-1 text-[11px] bg-[#3E101B] hover:bg-[#501523] text-stone-200 rounded border border-[#581625]"
-                        >
-                          Out
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
 
-      {/* MODAL 1: CAMERA QR SCANNER & INSTANT LOOKUP */}
-      <CameraQRScannerModal
+            <div className="my-3">
+              <input
+                type="text"
+                value={checkoutSearchQuery}
+                onChange={(e) => setCheckoutSearchQuery(e.target.value)}
+                placeholder="Filter admitted patrons..."
+                className="w-full px-3 py-2 bg-[#09090b] border border-white/[0.08] rounded text-xs text-white placeholder-white/30 font-mono focus:outline-none focus:border-[#C6A052]"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[560px]">
+              {filteredCheckouts.length === 0 ? (
+                <div className="mt-12 text-center text-[11px] font-mono text-white/30">
+                  --- NO RECORDS FOUND ---
+                </div>
+              ) : (
+                filteredCheckouts.map((v) => (
+                  <div
+                    key={v.id}
+                    className="p-3 bg-[#16161a] border border-white/[0.06] rounded flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-white truncate flex items-center gap-1.5">
+                        <span>{v.memberName}</span>
+                        {v.isOutToSmoke && (
+                          <span className="text-[9px] font-mono px-1 py-0.2 bg-amber-950 border border-amber-600/40 text-amber-300 rounded">
+                            SMOKER
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] font-mono text-white/40 mt-0.5">
+                        {v.memberNumber || v.attendeeType.replace('_', ' ')} ·{' '}
+                        {new Date(v.checkInTime).toLocaleTimeString('en-GB', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                      {v.guestNames && v.guestNames.length > 0 && (
+                        <div className="text-[10px] text-stone-400 mt-1">
+                          + Guests: {v.guestNames.join(', ')}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {v.isOutToSmoke ? (
+                        <button
+                          onClick={() => {
+                            const patron = clubStore
+                              .getSmokingPatrons()
+                              .find((p) => p.visitId === v.id);
+                            if (patron) clubStore.markSmokingReturned(patron.id);
+                          }}
+                          className="px-2 py-1 bg-amber-950 hover:bg-amber-900 border border-amber-500/50 text-amber-200 text-[10px] font-mono rounded"
+                        >
+                          Return
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            clubStore.markOutToSmoke({
+                              visitId: v.id,
+                              name: v.memberName,
+                              type: v.attendeeType === 'proprietor_guest' ? 'proprietor_guest' : v.attendeeType === 'member_guest' ? 'guest' : 'member',
+                            });
+                            setShowSmokingModal(true);
+                          }}
+                          disabled={stats.smokersOutside >= MAX_SMOKERS_OUTSIDE}
+                          className="px-2 py-1 bg-[#1f1a1d] hover:bg-[#2d2228] border border-white/[0.08] text-amber-300 text-[10px] font-mono rounded disabled:opacity-30"
+                        >
+                          Smoke
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleCheckOut(v.id)}
+                        className="px-2.5 py-1 bg-[#581625] hover:bg-[#721C31] text-[#C6A052] text-[10px] font-mono font-bold rounded"
+                      >
+                        Out
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* MODAL 1: CAMERA QR SCANNER & INSTANT LOOKUP (react-qr-reader with iPad Front Camera) */}
+      <FrontFacingQrScanner
         isOpen={showScannerModal}
         onClose={() => setShowScannerModal(false)}
         onMemberScanned={(member) => {

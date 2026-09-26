@@ -2,27 +2,128 @@
 
 @layer base {
   :root {
-    --font-serif: 'Cormorant Garamond', Georgia, serif;
-    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --bg: #111113;
+    --ink: #f2f2f2;
+    --accent: #581625;
+    --ink-faint: rgba(255, 255, 255, 0.08);
+    --gold: #C6A052;
+    --font-serif: 'Oswald', sans-serif;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: #0B0B0C;
-    color: #E8E6E3;
+    background-color: var(--bg);
+    color: var(--ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  h1, h2, h3, .font-serif {
-    font-family: var(--font-serif);
+  h1, h2, h3, .font-serif, .font-display {
+    font-family: 'Oswald', sans-serif;
+    letter-spacing: 0.04em;
   }
 
   .font-mono, .tabular-nums {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
+}
+
+/* Variation 6 Component Classes */
+.nav-link {
+  padding: 12px 0;
+  color: rgba(255, 255, 255, 0.4);
+  text-decoration: none;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  border-bottom: 1px solid var(--ink-faint);
+  transition: color 0.2s, border-color 0.2s;
+  display: block;
+  text-align: left;
+  background: transparent;
+  width: 100%;
+}
+.nav-link:hover, .nav-link.active {
+  color: var(--gold);
+  border-bottom-color: rgba(198, 160, 82, 0.4);
+}
+
+.util-box {
+  background: var(--bg);
+  padding: 24px 32px;
+}
+
+.label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.35);
+  margin-bottom: 8px;
+}
+
+.value {
+  font-family: 'Oswald', sans-serif;
+  font-size: 2.2rem;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.button-var {
+  padding: 18px 16px;
+  background: #1a1a1e;
+  border: 1px solid var(--ink-faint);
+  color: #fff;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.button-var:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.button-var.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.button-var.gold {
+  background: var(--gold);
+  color: #000;
+  border-color: var(--gold);
+}
+
+.camera-surface {
+  background: #000;
+  border-radius: 4px;
+  aspect-ratio: 16/10;
+  border: 2px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background: #34d399;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
 }
 
 /* Custom scrollbars */

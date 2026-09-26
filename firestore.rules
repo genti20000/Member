@@ -31,37 +31,40 @@ service cloud.firestore {
       );
     }
 
-    // Members Collection
+    // Connection validation test path
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Members Directory & Applications
     match /members/{memberId} {
-      allow read: if true; // Members directory read for door lookup and digital card verify
-      allow create: if isValidId(memberId) &&
-        incoming().fullName is string && incoming().fullName.size() <= 120 &&
-        incoming().status in ['pending', 'waiting_48_hours', 'ready_for_review', 'active', 'suspended', 'revoked', 'expired'];
-      allow update: if isValidId(memberId) &&
-        (isAdmin() || isSignedIn());
+      allow read: if true;
+      allow create, update: if isValidId(memberId);
       allow delete: if isAdmin();
     }
 
-    // Visits Attendance Collection
+    // Door Visits & Attendance Register
     match /visits/{visitId} {
-      allow read: if true; // Needed for door counter display and authority inspection
-      allow create, update: if isValidId(visitId) &&
-        incoming().date is string &&
-        incoming().attendeeType in ['member', 'member_guest', 'proprietor_guest'];
+      allow read: if true;
+      allow create, update: if isValidId(visitId);
       allow delete: if isAdmin();
     }
 
-    // Incident Log Collection
+    // Incident Log Register
     match /incidents/{incidentId} {
-      allow read: if true; // Needed for statutory inspection
-      allow create: if isValidId(incidentId) &&
-        incoming().category is string &&
-        incoming().description is string;
-      allow update: if isAdmin();
-      allow delete: if false; // Statutory incident records must not be deleted
+      allow read: if true;
+      allow create, update: if isValidId(incidentId);
+      allow delete: if false; // Statutory audit requirement
     }
 
-    // Club Rules Collection
+    // Audit Logs & Hourly Capacity
+    match /audit_logs/{logId} {
+      allow read: if true;
+      allow create: if isValidId(logId);
+      allow update, delete: if false;
+    }
+
+    // Club Rules Versions
     match /club_rules/{ruleId} {
       allow read: if true;
       allow write: if isAdmin();

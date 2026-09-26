@@ -90,3 +90,34 @@ export function verifyMemberToken(
 
   return { isValid: true, memberId };
 }
+
+/**
+ * Resolves a Member object from a raw scanned QR token string.
+ */
+export function parseMemberFromQRToken(
+  tokenStr: string,
+  members: Array<{ id: string; memberNumber: string; fullName: string; [key: string]: any }>
+): {
+  valid: boolean;
+  member: any | null;
+  error?: string;
+} {
+  const result = verifyMemberToken(tokenStr);
+  if (!result.isValid || !result.memberId) {
+    return { valid: false, member: null, error: result.reason || 'Invalid QR code' };
+  }
+
+  const normalized = result.memberId.trim().toLowerCase();
+  const matched = members.find(
+    (m) =>
+      m.id.toLowerCase() === normalized ||
+      m.memberNumber.toLowerCase() === normalized ||
+      m.fullName.toLowerCase() === normalized
+  );
+
+  if (!matched) {
+    return { valid: false, member: null, error: `Member ID "${result.memberId}" not found in register.` };
+  }
+
+  return { valid: true, member: matched };
+}

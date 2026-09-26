@@ -30,6 +30,16 @@ import {
   INITIAL_AUDIT_LOGS,
 } from '../data/mockSeed';
 
+import {
+  saveMemberToDb,
+  saveVisitToDb,
+  saveIncidentToDb,
+  saveAuditLogToDb,
+  testConnection,
+  setupFirestoreRealtimeListeners,
+  seedInitialFirestoreData,
+} from './firebase';
+
 const STORAGE_KEYS = {
   MEMBERS: 'jonnys_members_v2',
   STAFF: 'jonnys_staff_v2',
@@ -138,6 +148,8 @@ export const clubStore = {
     }
 
     setItem(STORAGE_KEYS.MEMBERS, members);
+    // Persist to Cloud Firestore database
+    saveMemberToDb(member);
 
     if (actor) {
       this.addAuditLog({
@@ -217,6 +229,7 @@ export const clubStore = {
       visits.unshift(visit);
     }
     setItem(STORAGE_KEYS.VISITS, visits);
+    saveVisitToDb(visit);
     notify();
   },
 
@@ -228,6 +241,7 @@ export const clubStore = {
       visit.isOutToSmoke = false;
       visit.checkOutTime = getVenueCurrentDate().toISOString();
       setItem(STORAGE_KEYS.VISITS, visits);
+      saveVisitToDb(visit);
 
       // Remove from smoking if currently out
       this.removeSmokingPatronByVisitId(visitId);
@@ -414,6 +428,7 @@ export const clubStore = {
     const list = this.getIncidents();
     list.unshift(incident);
     setItem(STORAGE_KEYS.INCIDENTS, list);
+    saveIncidentToDb(incident);
 
     this.addAuditLog({
       actorId: staff.id,
@@ -443,6 +458,7 @@ export const clubStore = {
     };
     list.unshift(newEvent);
     setItem(STORAGE_KEYS.AUDIT_LOGS, list);
+    saveAuditLogToDb(newEvent);
   },
 
   // Reset to seed data
@@ -451,3 +467,83 @@ export const clubStore = {
     notify();
   },
 };
+
+// Initialize Cloud Database Connection & Live Realtime Sync
+let hasInitializedSync = false;
+
+export async function initDatabaseSync(): Promise<void> {
+  if (hasInitializedSync) return;
+  hasInitializedSync = true;
+
+  try {
+    // 1. Test connection to Firestore
+    await testConnection();
+
+    // 2. Seed initial cloud data if newly created collection
+    await seedInitialFirestoreData({
+      members: clubStore.getMembers(),
+      visits: clubStore.getVisits(),
+      incidents: clubStore.getIncidents(),
+    });
+
+    // 3. Set up two-way real-time Firestore listeners
+    setupFirestoreRealtimeListeners({
+      onMembersUpdate: (remoteMembers) => {
+        if (remoteMembers && remoteMembers.length > 0) {
+          const local = clubStore.getMembers();
+          // Merge remote members with local
+          const merged = [...local];
+          remoteMembers.forEach((rm) => {
+            const idx = merged.findIndex((m) => m.id === rm.id);
+            if (idx >= 0) {
+              merged[idx] = rm;
+            } else {
+              merged.unshift(rm);
+            }
+          });
+          setItem(STORAGE_KEYS.MEMBERS, merged);
+          notify();
+        }
+      },
+      onVisitsUpdate: (remoteVisits) => {
+        if (remoteVisits && remoteVisits.length > 0) {
+          const local = clubStore.getVisits();
+          const merged = [...local];
+          remoteVisits.forEach((rv) => {
+            const idx = merged.findIndex((v) => v.id === rv.id);
+            if (idx >= 0) {
+              merged[idx] = rv;
+            } else {
+              merged.unshift(rv);
+            }
+          });
+          setItem(STORAGE_KEYS.VISITS, merged);
+          notify();
+        }
+      },
+      onIncidentsUpdate: (remoteIncidents) => {
+        if (remoteIncidents && remoteIncidents.length > 0) {
+          const local = clubStore.getIncidents();
+          const merged = [...local];
+          remoteIncidents.forEach((ri) => {
+            const idx = merged.findIndex((i) => i.id === ri.id);
+            if (idx >= 0) {
+              merged[idx] = ri;
+            } else {
+              merged.unshift(ri);
+            }
+          });
+          setItem(STORAGE_KEYS.INCIDENTS, merged);
+          notify();
+        }
+      },
+    });
+  } catch (err) {
+    console.warn('[Firestore] Realtime sync init error:', err);
+  }
+}
+
+// Auto-run sync on browser boot
+if (typeof window !== 'undefined') {
+  initDatabaseSync();
+}
