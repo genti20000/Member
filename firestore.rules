@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'londonkaraokeclubsoho@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Members Collection
+    match /members/{memberId} {
+      allow read: if true; // Members directory read for door lookup and digital card verify
+      allow create: if isValidId(memberId) &&
+        incoming().fullName is string && incoming().fullName.size() <= 120 &&
+        incoming().status in ['pending', 'waiting_48_hours', 'ready_for_review', 'active', 'suspended', 'revoked', 'expired'];
+      allow update: if isValidId(memberId) &&
+        (isAdmin() || isSignedIn());
+      allow delete: if isAdmin();
+    }
+
+    // Visits Attendance Collection
+    match /visits/{visitId} {
+      allow read: if true; // Needed for door counter display and authority inspection
+      allow create, update: if isValidId(visitId) &&
+        incoming().date is string &&
+        incoming().attendeeType in ['member', 'member_guest', 'proprietor_guest'];
+      allow delete: if isAdmin();
+    }
+
+    // Incident Log Collection
+    match /incidents/{incidentId} {
+      allow read: if true; // Needed for statutory inspection
+      allow create: if isValidId(incidentId) &&
+        incoming().category is string &&
+        incoming().description is string;
+      allow update: if isAdmin();
+      allow delete: if false; // Statutory incident records must not be deleted
+    }
+
+    // Club Rules Collection
+    match /club_rules/{ruleId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

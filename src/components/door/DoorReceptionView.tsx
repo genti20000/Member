@@ -39,6 +39,7 @@ import {
 import { verifyMemberToken } from '../../services/security';
 import { SmokingManagerModal } from './SmokingManagerModal';
 import { IncidentLoggerModal } from './IncidentLoggerModal';
+import { CameraQRScannerModal } from './CameraQRScannerModal';
 
 interface DoorReceptionViewProps {
   currentStaff: StaffUser;
@@ -878,81 +879,16 @@ export const DoorReceptionView: React.FC<DoorReceptionViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL 1: QR SCANNER & TEST SCAN EMULATOR */}
-      {showScannerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-[#121214] border border-[#581625] shadow-2xl p-5 sm:p-6">
-            <div className="flex items-center justify-between pb-3 border-b border-[#2B0A13]">
-              <div className="flex items-center gap-2 text-[#E5C378] font-serif text-lg font-bold">
-                <Camera className="w-5 h-5" />
-                <span>Reception Member QR Scanner</span>
-              </div>
-              <button
-                onClick={() => setShowScannerModal(false)}
-                className="text-stone-400 hover:text-white p-1"
-              >
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="my-5 p-6 rounded-xl border border-dashed border-[#C6A052]/40 bg-[#161012] flex flex-col items-center justify-center text-center">
-              <div className="w-32 h-32 rounded-xl border-2 border-[#C6A052] flex items-center justify-center relative overflow-hidden bg-black/50">
-                <div className="absolute inset-x-0 h-0.5 bg-[#E5C378] animate-pulse" />
-                <QrCode className="w-16 h-16 text-[#C6A052]/60" />
-              </div>
-              <p className="mt-4 text-xs text-stone-300">
-                Position iPad camera over member's digital card QR code.
-              </p>
-              <div className="text-[10px] text-[#C6A052] font-mono mt-1">
-                Rotating dynamic token supported (anti-screenshot protected)
-              </div>
-            </div>
-
-            {/* Quick Test Member Scenarios (Essential for rapid inspection) */}
-            <div>
-              <div className="text-[10px] font-mono uppercase tracking-wider text-stone-400 mb-2">
-                Simulate Direct Scans for Compliance Verification:
-              </div>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {allMembers.slice(0, 5).map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => handleSelectMember(m)}
-                    className="w-full p-2 rounded-lg bg-[#181416] hover:bg-[#251D22] border border-[#2B0A13] flex items-center justify-between text-left transition-colors"
-                  >
-                    <div>
-                      <div className="text-xs font-medium text-stone-200">{m.fullName}</div>
-                      <div className="text-[10px] text-stone-400 font-mono">
-                        {m.memberNumber} · {m.employer}
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${
-                        m.status === 'active'
-                          ? 'border-emerald-500/50 text-emerald-300'
-                          : m.status === 'waiting_48_hours'
-                          ? 'border-amber-500/50 text-amber-300'
-                          : 'border-rose-500/50 text-rose-300'
-                      }`}
-                    >
-                      {m.status.replace('_', ' ')}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-5 pt-3 border-t border-[#2B0A13] flex justify-end">
-              <button
-                onClick={() => setShowScannerModal(false)}
-                className="px-4 py-2 rounded-lg bg-[#221B1E] text-xs font-medium text-stone-300"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* MODAL 1: CAMERA QR SCANNER & INSTANT LOOKUP */}
+      <CameraQRScannerModal
+        isOpen={showScannerModal}
+        onClose={() => setShowScannerModal(false)}
+        onMemberScanned={(member) => {
+          handleSelectMember(member);
+          setShowScannerModal(false);
+        }}
+        currentCustomerCount={stats.totalCustomers}
+      />
 
       {/* MODAL 2: SEARCH MEMBER */}
       {showMemberLookup && (

@@ -1,0 +1,93 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "Registered member of Jonny's Soho Private Members Club",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "employer": { "type": "string" },
+        "hospitalityRole": { "type": "string" },
+        "employerAddress": { "type": "string" },
+        "evidenceUrl": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "waiting_48_hours", "ready_for_review", "active", "suspended", "revoked", "expired"]
+        },
+        "appliedAt": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "approvedBy": { "type": "string" },
+        "memberNumber": { "type": "string" },
+        "acceptedRulesVersion": { "type": "string" },
+        "acceptedRulesTimestamp": { "type": "string" }
+      },
+      "required": ["id", "fullName", "email", "status", "appliedAt"]
+    },
+    "Visit": {
+      "title": "Visit",
+      "description": "Door attendance record for a patron or guest",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "attendeeType": {
+          "type": "string",
+          "enum": ["member", "member_guest", "proprietor_guest"]
+        },
+        "memberId": { "type": "string" },
+        "memberName": { "type": "string" },
+        "memberNumber": { "type": "string" },
+        "guestNames": { "type": "array" },
+        "sponsoringMemberId": { "type": "string" },
+        "sponsoringMemberName": { "type": "string" },
+        "proprietorAffiliation": { "type": "string" },
+        "checkInTime": { "type": "string" },
+        "checkOutTime": { "type": "string" },
+        "isCurrentlyInside": { "type": "boolean" },
+        "isOutToSmoke": { "type": "boolean" },
+        "smokeExitTime": { "type": "string" },
+        "smokeReturnTime": { "type": "string" },
+        "responsibleStaffId": { "type": "string" },
+        "responsibleStaffName": { "type": "string" }
+      },
+      "required": ["id", "date", "attendeeType", "checkInTime", "isCurrentlyInside", "responsibleStaffId"]
+    },
+    "Incident": {
+      "title": "Incident",
+      "description": "Statutory incident log record for licensing inspection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "staffId": { "type": "string" },
+        "staffName": { "type": "string" },
+        "personsInvolved": { "type": "string" },
+        "actionTaken": { "type": "string" },
+        "cctvReference": { "type": "string" },
+        "reportedToPolice": { "type": "boolean" },
+        "cadNumber": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "category", "description", "staffId", "actionTaken"]
+    }
+  },
+  "firestore": {
+    "/members/{memberId}": {
+      "schema": "Member",
+      "description": "Club membership directory and applications"
+    },
+    "/visits/{visitId}": {
+      "schema": "Visit",
+      "description": "31-day door attendance records"
+    },
+    "/incidents/{incidentId}": {
+      "schema": "Incident",
+      "description": "Licensing incident register"
+    }
+  }
+}
